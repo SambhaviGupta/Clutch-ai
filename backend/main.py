@@ -36,7 +36,8 @@ def google_auth():
 def auth_callback(code: str, state: str = None):
     tokens = exchange_code_for_tokens(code)
     token_store["user"] = tokens
-    return RedirectResponse(url="http://localhost:5173?auth=success")
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    return RedirectResponse(url=f"{frontend_url}?auth=success")
 
 @app.post("/rescue")
 async def rescue(crisis_input: CrisisInput):
