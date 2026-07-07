@@ -21,7 +21,7 @@ export default function Dashboard() {
 
   const fetchAuthUrl = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/auth/google')
+      const res = await fetch('https://clutch-ai-cfe0.onrender.com/auth/google')
       const json = await res.json()
       setAuthUrl(json.auth_url)
     } catch {}

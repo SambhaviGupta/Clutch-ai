@@ -27,7 +27,7 @@ export default function Thinking() {
     }, 4000)
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/rescue', { message })
+      const response = await axios.post('https://clutch-ai-cfe0.onrender.com/rescue', { message })
       clearInterval(stepInterval)
       setCurrentStep(3)
       setTimeout(() => {

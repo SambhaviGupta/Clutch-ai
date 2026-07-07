@@ -1,58 +1,84 @@
 import os
 import json
-from google import genai
-from google.genai import types
+from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = "models/gemini-2.0-flash"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
-tools = [types.Tool(function_declarations=[
-    types.FunctionDeclaration(
-        name="classify_deadline",
-        description="Classifies the user crisis to determine task type, time available, and artifact type needed",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "task_type": types.Schema(type=types.Type.STRING),
-                "topic": types.Schema(type=types.Type.STRING),
-                "time_available_minutes": types.Schema(type=types.Type.INTEGER),
-                "artifact_type": types.Schema(type=types.Type.STRING),
-                "urgency_level": types.Schema(type=types.Type.STRING),
-            },
-            required=["task_type", "topic", "time_available_minutes", "artifact_type", "urgency_level"]
-        )
-    ),
-    types.FunctionDeclaration(
-        name="generate_work_artifact",
-        description="Generates actual work content like revision sheet, outline, or talking points",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "task_type": types.Schema(type=types.Type.STRING),
-                "topic": types.Schema(type=types.Type.STRING),
-                "artifact_type": types.Schema(type=types.Type.STRING),
-                "time_available_minutes": types.Schema(type=types.Type.INTEGER),
-            },
-            required=["task_type", "topic", "artifact_type", "time_available_minutes"]
-        )
-    ),
-    types.FunctionDeclaration(
-        name="create_sprint_plan",
-        description="Creates structured sprint blocks based on artifact and available time",
-        parameters=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "topic": types.Schema(type=types.Type.STRING),
-                "task_type": types.Schema(type=types.Type.STRING),
-                "time_available_minutes": types.Schema(type=types.Type.INTEGER),
-                "artifact_content": types.Schema(type=types.Type.STRING),
-            },
-            required=["topic", "task_type", "time_available_minutes"]
-        )
-    ),
-])]
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "classify_deadline",
+            "description": "Classifies the user crisis to determine task type, time available, and artifact type needed",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_type": {
+                        "type": "string",
+                        "enum": ["exam", "assignment", "presentation", "interview", "proposal", "meeting", "personal"],
+                        "description": "Type of deadline task"
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "Subject or topic of the task"
+                    },
+                    "time_available_minutes": {
+                        "type": "integer",
+                        "description": "Total time available in minutes"
+                    },
+                    "artifact_type": {
+                        "type": "string",
+                        "enum": ["revision_sheet", "outline", "talking_points", "research_brief", "code_scaffold", "checklist"],
+                        "description": "Type of work artifact to generate"
+                    },
+                    "urgency_level": {
+                        "type": "string",
+                        "enum": ["critical", "high", "medium"],
+                        "description": "Urgency level based on time available"
+                    }
+                },
+                "required": ["task_type", "topic", "time_available_minutes", "artifact_type", "urgency_level"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_work_artifact",
+            "description": "Generates actual work content like revision sheet, outline, or talking points",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_type": {"type": "string"},
+                    "topic": {"type": "string"},
+                    "artifact_type": {"type": "string"},
+                    "time_available_minutes": {"type": "integer"}
+                },
+                "required": ["task_type", "topic", "artifact_type", "time_available_minutes"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_sprint_plan",
+            "description": "Creates structured sprint blocks based on artifact and available time",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "task_type": {"type": "string"},
+                    "time_available_minutes": {"type": "integer"},
+                    "artifact_content": {"type": "string"}
+                },
+                "required": ["topic", "task_type", "time_available_minutes"]
+            }
+        }
+    }
+]
 
 def execute_classify_deadline(args: dict) -> dict:
     return args
@@ -74,8 +100,12 @@ Include: File structure, core functions with docstrings, key algorithms, common 
 Prioritize by impact. Include specific actionable steps only."""
     }
     prompt = prompts.get(args.get("artifact_type", "outline"), prompts["outline"])
-    response = client.models.generate_content(model=MODEL, contents=prompt)
-    return response.text
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2048
+    )
+    return response.choices[0].message.content
 
 def execute_create_sprint_plan(args: dict) -> list:
     prompt = f"""Create a sprint plan for {args['topic']} ({args['task_type']}) with {args['time_available_minutes']} minutes total.
@@ -89,9 +119,14 @@ Return a JSON array of sprint objects. Each sprint must have:
 - duration_minutes: integer (25-45 mins each)
 
 Make the last sprint a review/mock Q&A. Return ONLY valid JSON array, no markdown."""
-    response = client.models.generate_content(model=MODEL, contents=prompt)
+
+    response = client.chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1024
+    )
     try:
-        text = response.text.strip().strip("```json").strip("```").strip()
+        text = response.choices[0].message.content.strip().strip("```json").strip("```").strip()
         return json.loads(text)
     except:
         sprint_duration = min(45, args['time_available_minutes'] // 4)
@@ -132,68 +167,75 @@ async def run_rescue_agent(crisis_message: str) -> dict:
 Be autonomous. Do NOT ask permission. Chain all three tools without stopping.
 After all tools complete, give one short encouraging message (2 sentences max)."""
 
-    contents = [types.Content(role="user", parts=[types.Part(text=f"{system_prompt}\n\nUser crisis: {crisis_message}")])]
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": crisis_message}
+    ]
+
     classification = None
     artifact_content = None
     sprint_plan = None
     final_message = "Your rescue plan is ready. Let's go — you've got this."
 
     for _ in range(10):
-        response = client.models.generate_content(
+        response = client.chat.completions.create(
             model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                tools=tools,
-                tool_config=types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-                )
-            )
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=2048
         )
 
-        parts = response.candidates[0].content.parts
-        has_tool_call = any(hasattr(p, 'function_call') and p.function_call and p.function_call.name for p in parts)
+        message = response.choices[0].message
+        has_tool_calls = message.tool_calls and len(message.tool_calls) > 0
 
-        if not has_tool_call:
-            final_message = " ".join(p.text for p in parts if hasattr(p, 'text') and p.text) or final_message
+        if not has_tool_calls:
+            final_message = message.content or final_message
             break
 
-        contents.append(types.Content(role="model", parts=parts))
-        tool_response_parts = []
+        messages.append({
+            "role": "assistant",
+            "content": message.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                } for tc in message.tool_calls
+            ]
+        })
 
-        for part in parts:
-            if hasattr(part, 'function_call') and part.function_call and part.function_call.name:
-                fn_name = part.function_call.name
-                fn_args = dict(part.function_call.args)
+        for tool_call in message.tool_calls:
+            fn_name = tool_call.function.name
+            fn_args = json.loads(tool_call.function.arguments)
 
-                if fn_name == "classify_deadline":
-                    result = execute_classify_deadline(fn_args)
-                    classification = result
-                    result_payload = result
-                elif fn_name == "generate_work_artifact":
-                    if classification:
-                        fn_args.update({k: v for k, v in classification.items() if k not in fn_args})
-                    result = execute_generate_artifact(fn_args)
-                    artifact_content = result
-                    result_payload = {"content": result}
-                elif fn_name == "create_sprint_plan":
-                    if artifact_content:
-                        fn_args["artifact_content"] = artifact_content
-                    result = execute_create_sprint_plan(fn_args)
-                    sprint_plan = result
-                    result_payload = {"sprints": json.dumps(result)}
-                else:
-                    result_payload = {}
+            if fn_name == "classify_deadline":
+                result = execute_classify_deadline(fn_args)
+                classification = result
+                result_payload = json.dumps(result)
+            elif fn_name == "generate_work_artifact":
+                if classification:
+                    fn_args.update({k: v for k, v in classification.items() if k not in fn_args})
+                result = execute_generate_artifact(fn_args)
+                artifact_content = result
+                result_payload = result
+            elif fn_name == "create_sprint_plan":
+                if artifact_content:
+                    fn_args["artifact_content"] = artifact_content
+                result = execute_create_sprint_plan(fn_args)
+                sprint_plan = result
+                result_payload = json.dumps(result)
+            else:
+                result_payload = "{}"
 
-                tool_response_parts.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=fn_name,
-                            response=result_payload
-                        )
-                    )
-                )
-
-        contents.append(types.Content(role="user", parts=tool_response_parts))
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result_payload
+            })
 
     return {
         "classification": classification,
