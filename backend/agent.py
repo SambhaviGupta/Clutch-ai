@@ -81,6 +81,8 @@ tools = [
 ]
 
 def execute_classify_deadline(args: dict) -> dict:
+    if "time_available_minutes" in args:
+        args["time_available_minutes"] = int(args["time_available_minutes"])
     return args
 
 def execute_generate_artifact(args: dict) -> str:
