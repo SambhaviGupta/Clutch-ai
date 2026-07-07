@@ -26,8 +26,8 @@ tools = [
                         "description": "Subject or topic of the task"
                     },
                     "time_available_minutes": {
-                        "type": "integer",
-                        "description": "Total time available in minutes"
+                        "type": "string",
+                        "description": "Total time available in minutes, as a number"
                     },
                     "artifact_type": {
                         "type": "string",
@@ -55,7 +55,7 @@ tools = [
                     "task_type": {"type": "string"},
                     "topic": {"type": "string"},
                     "artifact_type": {"type": "string"},
-                    "time_available_minutes": {"type": "integer"}
+                    "time_available_minutes": {"type": "string", "description": "Total time available in minutes, as a number"}
                 },
                 "required": ["task_type", "topic", "artifact_type", "time_available_minutes"]
             }
@@ -71,7 +71,7 @@ tools = [
                 "properties": {
                     "topic": {"type": "string"},
                     "task_type": {"type": "string"},
-                    "time_available_minutes": {"type": "integer"},
+                    "time_available_minutes": {"type": "string", "description": "Total time available in minutes, as a number"},
                     "artifact_content": {"type": "string"}
                 },
                 "required": ["topic", "task_type", "time_available_minutes"]
@@ -81,11 +81,11 @@ tools = [
 ]
 
 def execute_classify_deadline(args: dict) -> dict:
-    if "time_available_minutes" in args:
-        args["time_available_minutes"] = int(args["time_available_minutes"])
+    args["time_available_minutes"] = int(args.get("time_available_minutes", 60))
     return args
 
 def execute_generate_artifact(args: dict) -> str:
+    args["time_available_minutes"] = int(args.get("time_available_minutes", 60))
     prompts = {
         "revision_sheet": f"""Create a rapid revision sheet for {args['topic']} for someone with {args['time_available_minutes']} minutes before their exam.
 Include: Key concepts (bullet points), Important formulas/definitions, Likely exam questions with one-line answers, Memory tricks.
@@ -110,6 +110,7 @@ Prioritize by impact. Include specific actionable steps only."""
     return response.choices[0].message.content
 
 def execute_create_sprint_plan(args: dict) -> list:
+    args["time_available_minutes"] = int(args.get("time_available_minutes", 60))
     prompt = f"""Create a sprint plan for {args['topic']} ({args['task_type']}) with {args['time_available_minutes']} minutes total.
 
 Based on this content:
